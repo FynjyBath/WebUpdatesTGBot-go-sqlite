@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -46,10 +47,10 @@ func RemoveNonUTF8Runes(s string) string {
 	return string(valid)
 }
 
-var sizes = []int{5, 8, 10, 11}
+var sizes = []int{11, 10, 8, 5}
 var timeFormats = map[int][]string{
 	5: {
-		"17:35",
+		"15:04",
 	},
 	8: {
 		"15:04:05",
@@ -63,33 +64,34 @@ var timeFormats = map[int][]string{
 	11: {
 		"02-Jan-2006",
 		"Jan-02-2006",
-		"Apr/12/2024",
+		"Jan/02/2006",
 	},
 }
 
 func ClearDateTimes(inp string) string {
 	str := []rune(inp)
 	var ret []rune
-	for i := 0; i < len(str); i++ {
+	for i := 0; i < len(str); {
 		flag := false
 		for _, sz := range sizes {
-			if i+sz >= len(str) {
-				break
-			}
-			substr := inp[i : i+sz]
-			for _, format := range timeFormats[sz] {
-				if _, err := time.Parse(format, substr); err == nil {
-					flag = true
-					i += sz - 1
+			if i+sz <= len(str) {
+				substr := inp[i : i+sz]
+				for _, format := range timeFormats[sz] {
+					_, err := time.Parse(format, substr)
+					if err == nil {
+						flag = true
+						i += sz
+						break
+					}
+				}
+				if flag {
 					break
 				}
-			}
-			if flag {
-				break
 			}
 		}
 		if !flag {
 			ret = append(ret, str[i])
+			i++
 		}
 	}
 	return string(ret)
@@ -161,8 +163,8 @@ func GetData(url string) (string, error) {
 		} else if len(tags) > 0 && IsTextTag(tags[len(tags)-1]) {
 			var new_data []rune
 			for ; i < len(html_text) && html_text[i] != '<'; i++ {
-				if (html_text[i] != '\n' && html_text[i] != '\t' && html_text[i] != ' ') ||
-					(html_text[i] == ' ' && len(new_data) > 0 && new_data[len(new_data)-1] != ' ') {
+				if !unicode.IsControl(html_text[i]) &&
+					(html_text[i] != ' ' || (html_text[i] == ' ' && len(new_data) > 0 && new_data[len(new_data)-1] != ' ')) {
 					new_data = append(new_data, html_text[i])
 				}
 			}
@@ -275,10 +277,18 @@ func DelUrl(user_id, site_id int, url string) string {
 	}
 
 	users_str = strings.Join(users, ",")
-	_, err = DB.Exec("UPDATE sites SET users = ? WHERE site_id = ?", users_str, site_id)
-	if err != nil {
-		log.Fatal(err)
-		return "❗ Произошла ошибка при обновлении списка пользователей для URL ❗"
+	if len(users_str) == 0 {
+		_, err = DB.Exec("DELETE FROM sites WHERE site_id = ?", site_id)
+		if err != nil {
+			log.Fatal(err)
+			return "❗ Произошла ошибка при удалении URL ❗"
+		}
+	} else {
+		_, err = DB.Exec("UPDATE sites SET users = ? WHERE site_id = ?", users_str, site_id)
+		if err != nil {
+			log.Fatal(err)
+			return "❗ Произошла ошибка при обновлении списка пользователей для URL ❗"
+		}
 	}
 
 	var sites_str string
@@ -327,6 +337,7 @@ func CheckUpdates() {
 		wg.Add(1)
 		go func(site Site) {
 			defer wg.Done()
+
 			new_data, err := GetData(site.url)
 			if err != nil {
 				return
@@ -338,19 +349,19 @@ func CheckUpdates() {
 			before, after := GetUpdate(site.data, new_data)
 			before = before[:min(len(before), 200)]
 			if len(before) == 200 {
-				before += ",,,"
+				before += "\n,,,всё содержимое не поместилось,,,"
 			}
 			after = after[:min(len(after), 200)]
 			if len(after) == 200 {
-				after += ",,,"
+				after += "\n,,,всё содержимое не поместилось,,,"
 			}
 
 			text := fmt.Sprintf("ИЗМЕНЕНИЕ НА: %s 🔗\n"+
 				"БЫЛО:\n"+
-				"```\n"+
+				"```html\n"+
 				"%s```\n"+
 				"СТАЛО:\n"+
-				"```\n"+
+				"```html\n"+
 				"%s```",
 				"[URL]("+site.url+")", before, after)
 
@@ -500,7 +511,7 @@ func main() {
 				command := update.Message.Command()
 				switch command {
 				case "start":
-					SendMessage(user_id, "Привет!\nСписок доступных команд:\n✏️ /add - добавление URL\n🗑️ /del - удаление URL")
+					SendMessage(user_id, "Привет!\nЯ помогу отслеживать изменения на странице в интернете.\nДля добавления страницы просто отправьте мне URL нужной вам страницы.\nДля удаления страницы введите команду /del.")
 				case "add":
 					url := update.Message.CommandArguments()
 					SendMessage(user_id, AddUrl(user_id, url))
@@ -541,6 +552,8 @@ func main() {
 						}
 					}
 				}
+			} else {
+				SendMessage(user_id, AddUrl(user_id, update.Message.Text))
 			}
 		}
 	}
