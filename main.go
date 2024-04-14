@@ -14,7 +14,6 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/net/html"
 )
 
 var bot *tgbotapi.BotAPI
@@ -47,30 +46,53 @@ func RemoveNonUTF8Runes(s string) string {
 	return string(valid)
 }
 
-func IsDateTime(str string) bool {
-	timeFormats := []string{
+var sizes = []int{5, 8, 10, 11}
+var timeFormats = map[int][]string{
+	5: {
+		"17:35",
+	},
+	8: {
+		"15:04:05",
+	},
+	10: {
 		"2006-01-02",
 		"2006/01/02",
-		"02-Jan-2006",
-		"Jan-02-2006",
 		"02.01.2006",
 		"2006.01.02",
-		"01.02",
-		"17:35",
-		"15:04:05",
+	},
+	11: {
+		"02-Jan-2006",
+		"Jan-02-2006",
 		"Apr/12/2024",
-		"Apr/03/2024 14:54:27",
-		"Feb/27/2024 17:35",
-		"18.12.2006 15:50",
-		"18.12.2006 15:50:50",
-		"5:26",
-	}
-	for _, format := range timeFormats {
-		if _, err := time.Parse(format, str); err == nil {
-			return true
+	},
+}
+
+func ClearDateTimes(inp string) string {
+	str := []rune(inp)
+	var ret []rune
+	for i := 0; i < len(str); i++ {
+		flag := false
+		for _, sz := range sizes {
+			if i+sz >= len(str) {
+				break
+			}
+			substr := inp[i : i+sz]
+			for _, format := range timeFormats[sz] {
+				if _, err := time.Parse(format, substr); err == nil {
+					flag = true
+					i += sz - 1
+					break
+				}
+			}
+			if flag {
+				break
+			}
+		}
+		if !flag {
+			ret = append(ret, str[i])
 		}
 	}
-	return false
+	return string(ret)
 }
 
 func BoolToInt(b bool) int {
@@ -92,6 +114,17 @@ func SendMessage(id int, message string) tgbotapi.Message {
 	return msg_sended
 }
 
+func IsTextTag(tag string) bool {
+	tag = strings.ToLower(tag)
+	textTags := []string{"p", "span", "div", "a", "strong", "em", "i", "b", "u", "blockquote", "title"}
+	for _, textTag := range textTags {
+		if tag == textTag {
+			return true
+		}
+	}
+	return false
+}
+
 func GetData(url string) (string, error) {
 	response, err := http.Get(url)
 	if err != nil {
@@ -99,36 +132,49 @@ func GetData(url string) (string, error) {
 	}
 	defer response.Body.Close()
 
-	html_text, err := io.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", err
 	}
+	html_text := []rune(string(body))
 
-	data := ""
+	var tags []string
+	var data string
 
-	domDocTest := html.NewTokenizer(strings.NewReader(string(html_text)))
-	previousStartTokenTest := domDocTest.Token()
-
-loop:
-	for {
-		tt := domDocTest.Next()
-		switch {
-		case tt == html.ErrorToken:
-			break loop
-		case tt == html.StartTagToken:
-			previousStartTokenTest = domDocTest.Token()
-		case tt == html.TextToken:
-			if previousStartTokenTest.Data == "script" || previousStartTokenTest.Data == "style" {
-				continue
+	for i := 0; i < len(html_text); {
+		if html_text[i] == '<' {
+			i++
+			var tag []rune
+			for ; i < len(html_text) && html_text[i] != '>' && html_text[i] != ' '; i++ {
+				tag = append(tag, html_text[i])
 			}
-			TxtContent := strings.TrimSpace(html.UnescapeString(string(domDocTest.Text())))
-			if len(TxtContent) > 0 {
-				data += TxtContent + " "
+			for ; i < len(html_text) && html_text[i] != '>'; i++ {
 			}
+			i++
+			if len(tag) > 0 {
+				if tag[0] == '/' {
+					tags = tags[:len(tags)-1]
+				} else {
+					tags = append(tags, string(tag))
+				}
+			}
+		} else if len(tags) > 0 && IsTextTag(tags[len(tags)-1]) {
+			var new_data []rune
+			for ; i < len(html_text) && html_text[i] != '<'; i++ {
+				if (html_text[i] != '\n' && html_text[i] != '\t' && html_text[i] != ' ') ||
+					(html_text[i] == ' ' && len(new_data) > 0 && new_data[len(new_data)-1] != ' ') {
+					new_data = append(new_data, html_text[i])
+				}
+			}
+			if len(new_data) > 0 && (len(new_data) > 1 || new_data[0] != ' ') {
+				data += ClearDateTimes(string(new_data)) + "\n"
+			}
+		} else {
+			i++
 		}
 	}
 
-	return data, nil
+	return string(data), nil
 }
 
 func GetUpdate(data1, data2 string) (string, string) {
@@ -338,6 +384,8 @@ func main() {
 		return
 	}
 	defer DB.Close()
+
+	log.Println("Connected to the database")
 
 	bot, err = tgbotapi.NewBotAPI("6803805831:AAFfMlkjOYipjorXm5ySAA11bmlg2vXcXeI")
 	if err != nil {
