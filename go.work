@@ -1,0 +1,9 @@
+go 1.22.0
+
+use (
+	./config
+	./main
+	./my_database
+	./processing_sites
+	./tgbot
+)
