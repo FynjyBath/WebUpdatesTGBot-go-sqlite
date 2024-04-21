@@ -10,6 +10,7 @@ type Config struct {
 	TGBotKey     string `json:"tgbotkey"`
 	Timeout      int    `json:"timeout"`
 	Check_period int    `json:"check_period"`
+	Maxlength    int    `json:"maxlength"`
 }
 
 func LoadConfig(filename string) Config {

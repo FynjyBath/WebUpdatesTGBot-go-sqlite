@@ -21,6 +21,7 @@ var bot tgbot.TGBot
 var err error
 var DB my_database.DataBaseSites
 var MU sync.Mutex
+var cfg config.Config
 
 type Site struct {
 	site_id   string
@@ -162,19 +163,19 @@ func DelUrl(user_id, site_id int, url string) string {
 func CheckUpdateOnSite(site Site) {
 	new_data, err := processing_sites.GetOnlyText(site.url)
 	if err != nil {
-		return
+		new_data = "❗ Произошла ошибка при получении данных с сайта ❗"
 	}
 	if site.data == new_data {
 		return
 	}
 
 	before, after := processing_sites.GetDifferences(site.data, new_data)
-	before = before[:min(len(before), 200)]
-	if len(before) == 200 {
+	before = before[:min(len(before), cfg.Maxlength)]
+	if len(before) == cfg.Maxlength {
 		before += "\n,,,всё содержимое не поместилось,,,"
 	}
-	after = after[:min(len(after), 200)]
-	if len(after) == 200 {
+	after = after[:min(len(after), cfg.Maxlength)]
+	if len(after) == cfg.Maxlength {
 		after += "\n,,,всё содержимое не поместилось,,,"
 	}
 
@@ -373,7 +374,7 @@ func CatchBotUpdate(update tgbotapi.Update) {
 }
 
 func main() {
-	cfg := config.LoadConfig("config.json")
+	cfg = config.LoadConfig("config.json")
 
 	DB.Init()
 	defer DB.DB.Close()
