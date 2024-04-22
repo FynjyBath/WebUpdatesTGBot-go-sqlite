@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"processing_sites"
-	"tgbot"
 	"config"
 	"my_database"
+	"processing_sites"
+	"tgbot"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	_ "github.com/mattn/go-sqlite3"
@@ -52,13 +52,15 @@ func AddUrl(user_id int, url string) string {
 		return "❗ Ошибка. Уже добавлено слишком много сайтов. ❗"
 	}
 
+	flag := true
 	var site_id string
 	err = DB.DB.QueryRow("SELECT site_id FROM sites WHERE url = ?;", url).Scan(&site_id)
 	if err != nil {
 		site_id = GenerateID()
 		data, err := processing_sites.GetOnlyText(url)
 		if err != nil {
-			return "❗ Ошибка. Возможно, вы забыли добавить префикс http:// или https:// в начале URL. ❗"
+			data = "❗ Произошла ошибка при получении данных с сайта ❗"
+			flag = false
 		}
 
 		_, err = DB.DB.Exec("INSERT INTO sites VALUES (?, ?, ?, '');", site_id, url, data)
@@ -92,7 +94,11 @@ func AddUrl(user_id int, url string) string {
 		log.Fatal(err)
 	}
 
-	return "Успешно добавлен [URL](" + url + ") 🔗"
+	if flag {
+		return "Успешно добавлен [URL](" + url + ") 🔗"
+	}
+	return "Успешно добавлен [URL](" + url + ") 🔗\n" + "Предупреждение:\n" +
+		"❗ Ошибка при получении данных с сайта. Возможно, вы забыли добавить префикс http:// или https:// в начале URL. ❗"
 }
 
 func DelUrl(user_id, site_id int, url string) string {
