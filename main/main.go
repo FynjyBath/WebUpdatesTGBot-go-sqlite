@@ -311,7 +311,7 @@ func CatchCommand(update tgbotapi.Update) {
 	command := update.Message.Command()
 	switch command {
 	case "start":
-		bot.SendMessage(user_id, "Привет!\nЯ помогу отслеживать изменения на странице в интернете.\nДля добавления страницы просто отправьте мне URL нужной вам страницы.\nДля удаления страницы введите команду /del.")
+		bot.SendMessage(user_id, "Привет!\nЯ помогу отслеживать изменения на странице в интернете.\n\nДля добавления страницы просто отправьте мне URL нужной вам страницы. Добавлять с префиксом 'http://' или 'https://'.\n\nДля удаления страницы введите команду /del.")
 	case "del":
 		var sites_str string
 		err = DB.DB.QueryRow("SELECT sites FROM users WHERE user_id=?", user_id).Scan(&sites_str)
